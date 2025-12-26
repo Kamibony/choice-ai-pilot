@@ -3,94 +3,83 @@ from vertexai.generative_models import GenerativeModel, GenerationConfig
 import json
 import os
 
-# Inicializácia Vertex AI
-# ZMENA: Nastavené na europe-west1, pretože tam beží váš Cloud Run
+# Konfigurácia pre Cloud Run v Európe
 PROJECT_ID = os.environ.get("GOOGLE_CLOUD_PROJECT")
 LOCATION = "europe-west1" 
 
 try:
     vertexai.init(project=PROJECT_ID, location=LOCATION)
 except Exception as e:
-    print(f"Warning: Vertex AI init failed (local run?): {e}")
+    print(f"Warning: Vertex AI init failed: {e}")
 
 def analyze_content(scraped_data: dict, client_brief: dict):
     """
-    Odošle dáta do Gemini a získa skutočnú analýzu.
+    AI Reputation & Perception Analysis (Možnosť B)
+    Zisťuje, ako AI vníma značku a či web komunikuje správne hodnoty.
     """
     
-    # 1. Príprava modelu
-    # ZMENA: Používame model gemini-2.5-pro podľa vašej požiadavky
+    # Používame Gemini 2.5 Pro pre najlepšie uvažovanie
     try:
         model = GenerativeModel("gemini-2.5-pro")
     except Exception as e:
-        print(f"Error initializing model: {e}")
-        return {
-            "summary": {"overall_score": 0, "ux_score": 0, "seo_score": 0, "page_title": "Model Error"},
-            "insights": [{"type": "warning", "title": "Model Init Error", "message": f"Model gemini-2.5-pro nebol nájdený: {str(e)}"}],
-            "recommendation": "Skontrolujte názov modelu."
-        }
+        return _error_response(str(e))
     
-    # 2. Vytvorenie Promptu
+    # --- PROMPT PRE REPUTAČNÚ ANALÝZU ---
     prompt = f"""
-    You are a Senior UX & Marketing Auditor. Analyze the following website content based on the client brief using Gemini 2.5 Pro capabilities.
-    
-    CLIENT BRIEF:
-    - Client Name: {client_brief.get('client_name')}
-    - Industry: {client_brief.get('industry')}
-    - Goals: {client_brief.get('goals')}
-    
-    WEBSITE DATA (Scraped):
-    - URL: {scraped_data.get('url')}
-    - Title: {scraped_data.get('title')}
-    - Description: {scraped_data.get('description')}
-    - Content Preview: {scraped_data.get('content_preview')}... (truncated)
+    Jsi expertní AI konzultant pro řízení reputace (AI Perception Management).
+    Tvým úkolem není jen analyzovat web, ale zjistit, zda má značka vybudovanou "digitální identitu", které AI rozumí.
 
-    TASK:
-    Analyze the website and provide a structured JSON response. Do NOT use Markdown formatting.
-    Evaluate:
-    1. UX Score (0-100) based on clarity and structure.
-    2. SEO Score (0-100) based on keywords and meta tags.
-    3. 3 specific insights (Success, Warning, Info).
-    4. One strategic recommendation.
+    VSTUPNÍ DATA:
+    1. KLIENT (Identita): {client_brief.get('client_name')}
+    2. SEKTOR: {client_brief.get('industry')}
+    3. CÍLE KLIENTA (Jak chtějí být vnímáni): {client_brief.get('goals', 'Lídr na trhu')}
+    4. REALITA (Obsah jejich webu): 
+       URL: {scraped_data.get('url')}
+       Titulek: {scraped_data.get('title')}
+       Obsah (úryvek): {scraped_data.get('content_preview')}...
 
-    OUTPUT FORMAT (JSON ONLY):
+    POKYNY K ANALÝZE (Krok za krokem):
+    1. Krok: Zkontroluj svou interní znalostní bázi (Training Data). Znáš entitu "{client_brief.get('client_name')}"? Pokud ne, je to "Unknown Entity".
+    2. Krok: Analyzuj "Brand Gap". Je obsah webu v souladu s CÍLI klienta? (Např. Klient chce být "Premium", ale web působí "Levně").
+    3. Krok: Navrhni, jak zlepšit vnímání značky v očích AI (LLM Optimization).
+
+    VÝSTUPNÍ FORMÁT (JSON, Čeština):
     {{
         "summary": {{
-            "overall_score": int,
-            "ux_score": int,
-            "seo_score": int,
-            "page_title": "string"
+            "overall_score": int,  // 0 = AI o vás neví, 100 = Silná AI autorita
+            "ux_score": int,       // Zde použij jako "Skóre Jasnosti Komunikace"
+            "seo_score": int,      // Zde použij jako "Skóre AI Čitelnosti"
+            "page_title": "string" // Titulek stránky
         }},
         "insights": [
-            {{ "type": "success", "title": "string", "message": "string" }},
-            {{ "type": "warning", "title": "string", "message": "string" }},
-            {{ "type": "info", "title": "string", "message": "string" }}
+            // Zde buď velmi konkrétní a kritický
+            {{ "type": "warning", "title": "AI Znalost (Perception)", "message": "Např: Gemini o vás nemá dost informací..." }},
+            {{ "type": "info", "title": "Soulad s Cíli (Alignment)", "message": "Např: Web komunikuje X, ale cílem je Y..." }},
+            {{ "type": "success", "title": "Silná stránka", "message": "Co dělá web dobře pro AI..." }}
         ],
-        "recommendation": "string"
+        "recommendation": "Strategické doporučení v jedné větě, jak zlepšit reputaci u AI."
     }}
     """
 
-    print(f"Sending request to Gemini 2.5 Pro in {LOCATION}...")
+    print(f"Spouštím AI Reputation Analysis v {LOCATION}...")
     
     try:
-        # 3. Volanie AI
         response = model.generate_content(
             prompt,
             generation_config=GenerationConfig(
                 response_mime_type="application/json",
-                temperature=0.2
+                temperature=0.3 # Nízká teplota pro analytickou přesnost
             )
         )
-        
-        # 4. Spracovanie odpovede
-        json_response = json.loads(response.text)
-        return json_response
+        return json.loads(response.text)
 
     except Exception as e:
-        print(f"Error calling Gemini: {e}")
-        # Fallback pre prípad chyby
-        return {
-            "summary": { "overall_score": 0, "ux_score": 0, "seo_score": 0, "page_title": "Error in Analysis" },
-            "insights": [{ "type": "warning", "title": "AI Error", "message": f"Chyba pri volaní AI: {str(e)}" }],
-            "recommendation": "Skontrolujte dostupnosť modelu a kvóty v Google Cloud."
-        }
+        print(f"Chyba AI: {e}")
+        return _error_response(str(e))
+
+def _error_response(msg):
+    return {
+        "summary": { "overall_score": 0, "ux_score": 0, "seo_score": 0, "page_title": "Chyba Analýzy" },
+        "insights": [{ "type": "warning", "title": "System Error", "message": f"Selhání modelu: {msg}" }],
+        "recommendation": "Zkuste opakovat analýzu."
+    }
