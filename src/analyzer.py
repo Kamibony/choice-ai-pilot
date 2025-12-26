@@ -3,7 +3,6 @@ from vertexai.generative_models import GenerativeModel, GenerationConfig
 import json
 import os
 
-# Konfigurácia pre Cloud Run v Európe
 PROJECT_ID = os.environ.get("GOOGLE_CLOUD_PROJECT")
 LOCATION = "europe-west1" 
 
@@ -13,12 +12,6 @@ except Exception as e:
     print(f"Warning: Vertex AI init failed: {e}")
 
 def analyze_content(scraped_data: dict, client_brief: dict):
-    """
-    AI Reputation & Perception Analysis (Možnosť B)
-    Zisťuje, ako AI vníma značku a či web komunikuje správne hodnoty.
-    """
-    
-    # Používame Gemini 2.5 Pro pre najlepšie uvažovanie
     try:
         model = GenerativeModel("gemini-2.5-pro")
     except Exception as e:
@@ -26,60 +19,67 @@ def analyze_content(scraped_data: dict, client_brief: dict):
     
     # --- PROMPT PRE REPUTAČNÚ ANALÝZU ---
     prompt = f"""
-    Jsi expertní AI konzultant pro řízení reputace (AI Perception Management).
-    Tvým úkolem není jen analyzovat web, ale zjistit, zda má značka vybudovanou "digitální identitu", které AI rozumí.
+    Jsi AI Perception Auditor. Tvým úkolem je porovnat, jak "AI vidí klienta" vs "Jak se klient prezentuje".
+    
+    VSTUPY:
+    1. ENTITA (Klient): "{client_brief.get('client_name')}"
+    2. WEB URL: {scraped_data.get('url')}
+    3. OBSAH WEBU (Reality): {scraped_data.get('content_preview')}... (zkráceno)
+    4. CÍLOVÁ IDENTITA (Co klient tvrdí): "{client_brief.get('goals')}"
 
-    VSTUPNÍ DATA:
-    1. KLIENT (Identita): {client_brief.get('client_name')}
-    2. SEKTOR: {client_brief.get('industry')}
-    3. CÍLE KLIENTA (Jak chtějí být vnímáni): {client_brief.get('goals', 'Lídr na trhu')}
-    4. REALITA (Obsah jejich webu): 
-       URL: {scraped_data.get('url')}
-       Titulek: {scraped_data.get('title')}
-       Obsah (úryvek): {scraped_data.get('content_preview')}...
+    ÚKOL ANALÝZY (Postupuj přesně):
+    1. MEMORY CHECK (Bez webu): Co víš o entitě "{client_brief.get('client_name')}" ze svých trénovacích dat?
+       - Pokud ji znáš, jaké 3 klíčové atributy si s ní spojuješ?
+       - Pokud ji neznáš, přiznej to (Unknown Entity).
+    
+    2. REALITY CHECK (S webem): Podporuje obsah webu "Cílovou Identitu"?
+       - Hledáš rozpory (např. Cíl="Inovace", Web="Zastaralý text").
 
-    POKYNY K ANALÝZE (Krok za krokem):
-    1. Krok: Zkontroluj svou interní znalostní bázi (Training Data). Znáš entitu "{client_brief.get('client_name')}"? Pokud ne, je to "Unknown Entity".
-    2. Krok: Analyzuj "Brand Gap". Je obsah webu v souladu s CÍLI klienta? (Např. Klient chce být "Premium", ale web působí "Levně").
-    3. Krok: Navrhni, jak zlepšit vnímání značky v očích AI (LLM Optimization).
-
-    VÝSTUPNÍ FORMÁT (JSON, Čeština):
+    VÝSTUP JSON (Čeština):
     {{
         "summary": {{
-            "overall_score": int,  // 0 = AI o vás neví, 100 = Silná AI autorita
-            "ux_score": int,       // Zde použij jako "Skóre Jasnosti Komunikace"
-            "seo_score": int,      // Zde použij jako "Skóre AI Čitelnosti"
-            "page_title": "string" // Titulek stránky
+            "overall_score": int, // 0-100 (100 = AI vás perfektně zná a web odpovídá cílům)
+            "page_title": "{client_brief.get('client_name')}" 
         }},
         "insights": [
-            // Zde buď velmi konkrétní a kritický
-            {{ "type": "warning", "title": "AI Znalost (Perception)", "message": "Např: Gemini o vás nemá dost informací..." }},
-            {{ "type": "info", "title": "Soulad s Cíli (Alignment)", "message": "Např: Web komunikuje X, ale cílem je Y..." }},
-            {{ "type": "success", "title": "Silná stránka", "message": "Co dělá web dobře pro AI..." }}
+            {{ 
+                "type": "info", 
+                "title": "Co o vás vím (AI Memory)", 
+                "message": "Zde napiš, co o firmě víš z paměti. Pokud nic, napiš: 'Ve své paměti tuto firmu neeviduji jako známou značku.'" 
+            }},
+            {{ 
+                "type": "warning", 
+                "title": "Rozpor Identity (Gap Analysis)", 
+                "message": "Porovnej 'Cílovou Identitu' s obsahem webu. Např: 'Tvrdíte, že jste lídři v AI, ale na webu o tom není zmínka.'" 
+            }},
+            {{ 
+                "type": "success", 
+                "title": "Verdikt", 
+                "message": "Celkové shrnutí reputace." 
+            }}
         ],
-        "recommendation": "Strategické doporučení v jedné větě, jak zlepšit reputaci u AI."
+        "recommendation": "Jedna konkrétní rada, jak přesvědčit AI (LLM), aby vás vnímala lépe."
     }}
     """
 
-    print(f"Spouštím AI Reputation Analysis v {LOCATION}...")
+    print(f"Spouštím Perception Audit pro: {client_brief.get('client_name')}")
     
     try:
         response = model.generate_content(
             prompt,
             generation_config=GenerationConfig(
                 response_mime_type="application/json",
-                temperature=0.3 # Nízká teplota pro analytickou přesnost
+                temperature=0.3
             )
         )
         return json.loads(response.text)
 
     except Exception as e:
-        print(f"Chyba AI: {e}")
         return _error_response(str(e))
 
 def _error_response(msg):
     return {
-        "summary": { "overall_score": 0, "ux_score": 0, "seo_score": 0, "page_title": "Chyba Analýzy" },
-        "insights": [{ "type": "warning", "title": "System Error", "message": f"Selhání modelu: {msg}" }],
-        "recommendation": "Zkuste opakovat analýzu."
+        "summary": { "overall_score": 0, "page_title": "Chyba" },
+        "insights": [{ "type": "warning", "title": "Error", "message": str(msg) }, { "type": "warning", "title": "-", "message": "-" }],
+        "recommendation": "Skuste znova."
     }
