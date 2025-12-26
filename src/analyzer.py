@@ -3,10 +3,10 @@ from vertexai.generative_models import GenerativeModel, GenerationConfig
 import json
 import os
 
-# Inicializácia Vertex AI (automaticky použije vaše Google Cloud credentials)
-# PROJECT_ID sa na Cloud Run nastaví automaticky, ale pre istotu ho čítame z env
+# Inicializácia Vertex AI
+# ZMENA: Nastavené na europe-west1, pretože tam beží váš Cloud Run
 PROJECT_ID = os.environ.get("GOOGLE_CLOUD_PROJECT")
-LOCATION = "us-central1" # Vertex AI je najstabilnejší v US
+LOCATION = "europe-west1" 
 
 try:
     vertexai.init(project=PROJECT_ID, location=LOCATION)
@@ -19,12 +19,20 @@ def analyze_content(scraped_data: dict, client_brief: dict):
     """
     
     # 1. Príprava modelu
-    model = GenerativeModel("gemini-1.5-flash-001") # Používame Flash pre rýchlosť
+    # ZMENA: Používame model gemini-2.5-pro podľa vašej požiadavky
+    try:
+        model = GenerativeModel("gemini-2.5-pro")
+    except Exception as e:
+        print(f"Error initializing model: {e}")
+        return {
+            "summary": {"overall_score": 0, "ux_score": 0, "seo_score": 0, "page_title": "Model Error"},
+            "insights": [{"type": "warning", "title": "Model Init Error", "message": f"Model gemini-2.5-pro nebol nájdený: {str(e)}"}],
+            "recommendation": "Skontrolujte názov modelu."
+        }
     
-    # 2. Vytvorenie Promptu (inštrukcií pre AI)
-    # Hovoríme AI, aby sa správala ako API a vrátila len čistý JSON.
+    # 2. Vytvorenie Promptu
     prompt = f"""
-    You are a Senior UX & Marketing Auditor. Analyze the following website content based on the client brief.
+    You are a Senior UX & Marketing Auditor. Analyze the following website content based on the client brief using Gemini 2.5 Pro capabilities.
     
     CLIENT BRIEF:
     - Client Name: {client_brief.get('client_name')}
@@ -62,13 +70,16 @@ def analyze_content(scraped_data: dict, client_brief: dict):
     }}
     """
 
-    print("Sending request to Gemini...")
+    print(f"Sending request to Gemini 2.5 Pro in {LOCATION}...")
     
     try:
         # 3. Volanie AI
         response = model.generate_content(
             prompt,
-            generation_config=GenerationConfig(response_mime_type="application/json")
+            generation_config=GenerationConfig(
+                response_mime_type="application/json",
+                temperature=0.2
+            )
         )
         
         # 4. Spracovanie odpovede
@@ -77,9 +88,9 @@ def analyze_content(scraped_data: dict, client_brief: dict):
 
     except Exception as e:
         print(f"Error calling Gemini: {e}")
-        # Fallback pre prípad chyby (aby appka nepadla)
+        # Fallback pre prípad chyby
         return {
             "summary": { "overall_score": 0, "ux_score": 0, "seo_score": 0, "page_title": "Error in Analysis" },
-            "insights": [{ "type": "warning", "title": "AI Error", "message": "Nepodarilo sa spojiť s AI modelom. Skontrolujte kvóty." }],
-            "recommendation": "Skúste to prosím neskôr."
+            "insights": [{ "type": "warning", "title": "AI Error", "message": f"Chyba pri volaní AI: {str(e)}" }],
+            "recommendation": "Skontrolujte dostupnosť modelu a kvóty v Google Cloud."
         }
