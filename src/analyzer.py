@@ -2,7 +2,9 @@ import vertexai
 from vertexai.generative_models import GenerativeModel, GenerationConfig
 import json
 import os
+import time
 
+# Konfigurácia (Európa)
 PROJECT_ID = os.environ.get("GOOGLE_CLOUD_PROJECT")
 LOCATION = "europe-west1" 
 
@@ -12,74 +14,105 @@ except Exception as e:
     print(f"Warning: Vertex AI init failed: {e}")
 
 def analyze_content(scraped_data: dict, client_brief: dict):
+    """
+    AGENCY MODE 3.0: Deep Interrogation (Sériový výsluch)
+    Vykonáva sériu cielených otázok na AI, aby zistil skutočnú reputáciu.
+    """
+    
     try:
         model = GenerativeModel("gemini-2.5-pro")
     except Exception as e:
         return _error_response(str(e))
     
-    # --- PROMPT PRE REPUTAČNÚ ANALÝZU ---
-    prompt = f"""
-    Jsi AI Perception Auditor. Tvým úkolem je porovnat, jak "AI vidí klienta" vs "Jak se klient prezentuje".
+    client = client_brief.get('client_name')
+    goals = client_brief.get('goals')
+    industry = client_brief.get('industry')
     
-    VSTUPY:
-    1. ENTITA (Klient): "{client_brief.get('client_name')}"
-    2. WEB URL: {scraped_data.get('url')}
-    3. OBSAH WEBU (Reality): {scraped_data.get('content_preview')}... (zkráceno)
-    4. CÍLOVÁ IDENTITA (Co klient tvrdí): "{client_brief.get('goals')}"
+    print(f"--- ZAČÍNAM SÉRIOVÝ VÝSLUCH PRE: {client} ---")
 
-    ÚKOL ANALÝZY (Postupuj přesně):
-    1. MEMORY CHECK (Bez webu): Co víš o entitě "{client_brief.get('client_name')}" ze svých trénovacích dat?
-       - Pokud ji znáš, jaké 3 klíčové atributy si s ní spojuješ?
-       - Pokud ji neznáš, přiznej to (Unknown Entity).
+    # --- KROK 1: BLIND REPUTATION CHECK (Bez webu) ---
+    # Pýtame sa AI, čo vie o firme len z názvu.
+    print("1. Fáza: Test Znalosti (Blind Test)...")
+    q1_prompt = f"""
+    Jsi nezávislý analytik značek.
+    Otázka: Co přesně víš o entitě "{client}" v segmentu "{industry}"? 
+    Buď upřímný. Pokud ji neznáš, řekni "Neznámá entita". 
+    Pokud ji znáš, jaké jsou její 3 hlavní atributy (pozitivní i negativní)?
+    Odpověz stručně v češtině.
+    """
+    res1 = model.generate_content(q1_prompt).text
+
+    # --- KROK 2: GOAL ALIGNMENT CHECK (Validace Cílů) ---
+    # Konfrontujeme AI: "Klient chce byť X, je to pravda?"
+    print("2. Fáza: Validace Ambicí...")
+    q2_prompt = f"""
+    Kontext: Entita "{client}" tvrdí, že její identita je: "{goals}".
     
-    2. REALITY CHECK (S webem): Podporuje obsah webu "Cílovou Identitu"?
-       - Hledáš rozpory (např. Cíl="Inovace", Web="Zastaralý text").
+    Úkol kritika:
+    Na základě tvých znalostí (a předchozí odpovědi: "{res1}"), je toto tvrzení pravdivé? 
+    Vnímá trh tuto firmu takto? Ano/Ne a proč? Buď kritický.
+    Odpověz stručně v češtině.
+    """
+    res2 = model.generate_content(q2_prompt).text
 
-    VÝSTUP JSON (Čeština):
+    # --- KROK 3: FINAL SYNTHESIS & WEB GAP ANALYSIS ---
+    # Spojíme všetko dokopy aj s webom.
+    print("3. Fáza: Finální Syntéza s Webem...")
+    final_prompt = f"""
+    Jsi AI Perception Auditor. Provedi finální syntézu reputace.
+
+    VSTUPNÍ DATA Z VÝSLUCHU:
+    1. CO VÍ AI (Memory): {res1}
+    2. NÁZOR AI NA CÍLE (Critique): {res2}
+    3. REALITA NA WEBU (Scraped): {scraped_data.get('content_preview')}... (zkráceno)
+
+    ÚKOL:
+    Vygeneruj finální JSON report v Češtině.
+    Porovnej "Co AI ví" vs "Co je na webu" vs "Co klient chce".
+    
+    VÝSTUP JSON:
     {{
         "summary": {{
-            "overall_score": int, // 0-100 (100 = AI vás perfektně zná a web odpovídá cílům)
-            "page_title": "{client_brief.get('client_name')}" 
+            "overall_score": int, // 0-100 (Skóre reputační autority)
+            "page_title": "{scraped_data.get('title')}"
         }},
         "insights": [
             {{ 
                 "type": "info", 
-                "title": "Co o vás vím (AI Memory)", 
-                "message": "Zde napiš, co o firmě víš z paměti. Pokud nic, napiš: 'Ve své paměti tuto firmu neeviduji jako známou značku.'" 
+                "title": "Fáze 1: AI Paměť", 
+                "message": "Shrnutí toho, co o firmě víš (z odpovědi: {res1})" 
             }},
             {{ 
                 "type": "warning", 
-                "title": "Rozpor Identity (Gap Analysis)", 
-                "message": "Porovnej 'Cílovou Identitu' s obsahem webu. Např: 'Tvrdíte, že jste lídři v AI, ale na webu o tom není zmínka.'" 
+                "title": "Fáze 2: Reality Check", 
+                "message": "Kritické zhodnocení cílů (z odpovědi: {res2})" 
             }},
             {{ 
                 "type": "success", 
-                "title": "Verdikt", 
-                "message": "Celkové shrnutí reputace." 
+                "title": "Fáze 3: Web Důkazy", 
+                "message": "Podporuje obsah webu tyto cíle? Nebo je tam 'Gap'?" 
             }}
         ],
-        "recommendation": "Jedna konkrétní rada, jak přesvědčit AI (LLM), aby vás vnímala lépe."
+        "recommendation": "Jedna strategická rada, jak zlepšit vnímání AI."
     }}
     """
-
-    print(f"Spouštím Perception Audit pro: {client_brief.get('client_name')}")
     
     try:
-        response = model.generate_content(
-            prompt,
+        final_response = model.generate_content(
+            final_prompt,
             generation_config=GenerationConfig(
                 response_mime_type="application/json",
                 temperature=0.3
             )
         )
-        return json.loads(response.text)
-
+        return json.loads(final_response.text)
     except Exception as e:
+        print(f"Chyba ve finále: {e}")
         return _error_response(str(e))
 
 def _error_response(msg):
     return {
-        "summary": { "overall_score": 0, "page_title": "Chyba" },
-        "insights": [{ "type": "warning", "title": "Error", "message": str(msg) }, { "type": "warning", "title": "-", "message": "-" }],
-        "recommendation": "Skuste znova."
+        "summary": { "overall_score": 0, "page_title": "Chyba Analýzy" },
+        "insights": [{ "type": "warning", "title": "Error", "message": f"Selhání modelu: {msg}" }],
+        "recommendation": "Zkuste opakovat analýzu."
     }
