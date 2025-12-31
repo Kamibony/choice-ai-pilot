@@ -9,3 +9,5 @@ python-dotenv
 python-multipart
 pandas
 openpyxl
+requests
+google-auth
