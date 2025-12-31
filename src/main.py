@@ -171,15 +171,7 @@ HTML_APP = """
                             <span id="rimlabConf" class="text-2xl font-bold text-white">--</span>
                         </div>
 
-                        <div class="mb-4">
-                            <p class="text-xs text-slate-500 uppercase">AI Thinks CEO Is:</p>
-                            <p id="rimlabDirector" class="text-lg font-bold text-white">--</p>
-                        </div>
-
-                        <div>
-                            <p class="text-xs text-slate-500 uppercase mb-2">AI Thinks Email Is:</p>
-                            <p id="rimlabEmail" class="text-sm text-red-300 break-all">--</p>
-                        </div>
+                        <div id="rimlabList" class="space-y-3 text-sm mt-4"></div>
                     </div>
 
                     <!-- Veritic Column (Web Reality) -->
@@ -197,10 +189,7 @@ HTML_APP = """
                             <div id="veriticMissing" class="flex flex-wrap gap-2"></div>
                         </div>
 
-                        <div class="mt-4 pt-4 border-t border-slate-700">
-                            <p class="text-xs text-slate-500 uppercase mb-2">Extracted</p>
-                            <ul id="veriticExtracted" class="text-sm space-y-1 text-slate-300"></ul>
-                        </div>
+                        <div id="veriticList" class="space-y-3 text-sm mt-4"></div>
                     </div>
 
                     <!-- Choice Column (Brand Perception) -->
@@ -229,6 +218,12 @@ HTML_APP = """
                         </div>
                     </div>
 
+                </div>
+
+                <!-- Synthesis & Interpretation -->
+                <div class="mt-6 glass p-6 rounded-xl border-t border-slate-600">
+                    <h3 class="text-xl font-bold text-white mb-2"><i class="fas fa-brain mr-2 text-blue-400"></i>Synthesis & Interpretation</h3>
+                    <div id="synthesisContent" class="text-slate-300 leading-relaxed space-y-2"></div>
                 </div>
             </div>
 
@@ -467,32 +462,43 @@ HTML_APP = """
             document.getElementById('resName').innerText = data.metadata.client;
             document.getElementById('resLink').href = data.metadata.url;
 
-            // Layman Verdict Banner
+            // Synthesis & Interpretation
+            document.getElementById('synthesisContent').innerText = data.layman_verdict || "No synthesis available.";
+
+            // Remove old banner if it exists
             const banner = document.getElementById('laymanBanner');
-            if (banner) banner.remove(); // Clear previous
+            if (banner) banner.remove();
 
-            if (data.layman_verdict) {
-                const newBanner = document.createElement('div');
-                newBanner.id = 'laymanBanner';
-
-                // Color logic based on Veritic Score
-                const score = data.veritic_result.integrity_score || 0;
-                let bgClass = 'bg-slate-700';
-                if(score < 50) bgClass = 'bg-red-600';
-                if(score > 80) bgClass = 'bg-green-600';
-
-                newBanner.className = `p-4 rounded-xl mb-6 font-bold text-white shadow-lg ${bgClass}`;
-                newBanner.innerText = data.layman_verdict;
-
-                // Insert after header (resName/resLink container is first child)
-                card.children[0].after(newBanner);
-            }
+            // Labels Mapping
+            const labels = {
+                director: "Director",
+                email: "Email",
+                deadline: "Deadline",
+                tuition: "Tuition",
+                open_house: "Open House",
+                pool: "Pool",
+                open_day: "Open House",
+                facilities: "Pool"
+            };
 
             // RimLab
             const r = data.rimlab_result;
             document.getElementById('rimlabConf').innerText = r.confidence;
-            document.getElementById('rimlabDirector').innerText = r.ai_director;
-            document.getElementById('rimlabEmail').innerText = r.ai_email;
+
+            const rimList = document.getElementById('rimlabList');
+            rimList.innerHTML = '';
+
+            for (const [key, val] of Object.entries(r)) {
+                if (key === 'confidence') continue;
+                const normalizedKey = key.replace('ai_', '');
+                if (labels[normalizedKey]) {
+                     rimList.innerHTML += `
+                        <div class="flex justify-between border-b border-slate-700/50 pb-1">
+                            <span class="text-slate-500 uppercase text-xs pt-1">${labels[normalizedKey]}</span>
+                            <span class="text-white font-medium text-right pl-2">${val}</span>
+                        </div>`;
+                }
+            }
 
             // Veritic
             const v = data.veritic_result;
@@ -505,10 +511,17 @@ HTML_APP = """
             });
             if(v.missing_data.length === 0) vMissing.innerHTML = '<span class="text-green-500 text-xs">All Clear</span>';
 
-            const vExt = document.getElementById('veriticExtracted');
-            vExt.innerHTML = '';
+            const vList = document.getElementById('veriticList');
+            vList.innerHTML = '';
+
             for (const [key, val] of Object.entries(v.extracted_data)) {
-                vExt.innerHTML += `<li><strong class="capitalize text-slate-400">${key}:</strong> ${val}</li>`;
+                 if (labels[key]) {
+                     vList.innerHTML += `
+                        <div class="flex justify-between border-b border-slate-700/50 pb-1">
+                            <span class="text-slate-500 uppercase text-xs pt-1">${labels[key]}</span>
+                            <span class="text-white font-medium text-right pl-2">${val}</span>
+                        </div>`;
+                 }
             }
 
             // Choice
