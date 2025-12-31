@@ -6,7 +6,6 @@ import pandas as pd
 import io
 import json
 import asyncio
-from google.cloud.aiplatform_v1beta1.types import Tool as GapicTool
 from vertexai.generative_models import GenerativeModel, Tool, grounding
 from src.scraper import scrape_site
 from src.analyzer import analyze_universal
@@ -539,9 +538,7 @@ async def perform_audit(request: AuditRequest):
 @app.post("/generate-leads")
 async def generate_leads(req: GeneratorRequest):
     try:
-        tool = Tool.from_gapic(
-            raw_tool=GapicTool(google_search=GapicTool.GoogleSearch())
-        )
+        tool = Tool.from_google_search(grounding.GoogleSearch())
         model = GenerativeModel("gemini-2.5-pro", tools=[tool])
         prompt = f"QUERY: {req.prompt}. TASK: Search Google for the OFFICIAL websites of these institutions. CONSTRAINT: Do NOT guess. If the URL found is corporate (like 'ag.cz') but the entity is a school, keep searching for the school's domain (e.g., 'agstepanska.cz'). OUTPUT: Valid JSON array."
         response = await model.generate_content_async(prompt)
