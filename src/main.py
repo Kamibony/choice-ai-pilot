@@ -7,9 +7,16 @@ import io
 import json
 import asyncio
 from vertexai.generative_models import GenerativeModel, Tool, grounding
-from google.cloud.aiplatform_v1beta1 import types as gapic_types
+# google.cloud.aiplatform_v1beta1 imports removed as they are no longer used in generate_leads
+# from google.cloud.aiplatform_v1beta1 import types as gapic_types
 from src.scraper import scrape_site
 from src.analyzer import analyze_universal
+
+# New imports for direct REST API call
+import google.auth
+from google.auth.transport.requests import Request as GoogleAuthRequest
+import requests
+import os
 
 app = FastAPI()
 
@@ -539,26 +546,67 @@ async def perform_audit(request: AuditRequest):
 @app.post("/generate-leads")
 async def generate_leads(req: GeneratorRequest):
     try:
-        # SYSTEMIC FIX: Constructing raw protobuf to strict-force 'google_search' field
-        # and avoid any implicit SDK fallback to 'retrieval'.
-        tool = Tool.from_gapic(
-            raw_tool=gapic_types.Tool(
-                google_search=gapic_types.Tool.GoogleSearch()
-            )
-        )
-        model = GenerativeModel("gemini-2.5-pro", tools=[tool])
-        prompt = f"QUERY: {req.prompt}. TASK: Search Google for the OFFICIAL websites of these institutions. CONSTRAINT: Do NOT guess. If the URL found is corporate (like 'ag.cz') but the entity is a school, keep searching for the school's domain (e.g., 'agstepanska.cz'). OUTPUT: Valid JSON array."
-        response = await model.generate_content_async(prompt)
-        text = response.text.strip()
-        # Clean potential markdown
+        # Get credentials
+        credentials, project_id = google.auth.default()
+        auth_req = GoogleAuthRequest()
+        credentials.refresh(auth_req)
+
+        # Fallback for project_id if not detected automatically
+        if not project_id:
+             project_id = os.environ.get("GCP_PROJECT_ID") or os.environ.get("GOOGLE_CLOUD_PROJECT")
+
+        if not project_id:
+            raise Exception("Could not determine Google Cloud Project ID")
+
+        # Hardcode region as requested
+        location = "us-central1"
+
+        # Construct URL
+        url = f"https://us-central1-aiplatform.googleapis.com/v1/projects/{project_id}/locations/{location}/publishers/google/models/gemini-2.5-pro:generateContent"
+
+        headers = {
+            "Authorization": f"Bearer {credentials.token}",
+            "Content-Type": "application/json; charset=utf-8"
+        }
+
+        prompt_text = f"QUERY: {req.prompt}. TASK: Search Google for the OFFICIAL websites of these institutions. CONSTRAINT: Do NOT guess. If the URL found is corporate (like 'ag.cz') but the entity is a school, keep searching for the school's domain (e.g., 'agstepanska.cz'). OUTPUT: Valid JSON array."
+
+        # Construct raw JSON payload
+        payload = {
+            "contents": [{ "role": "user", "parts": [{ "text": prompt_text }] }],
+            "tools": [{ "googleSearch": {} }],
+            "generationConfig": { "temperature": 0.1 }
+        }
+
+        # Make the request
+        response = requests.post(url, headers=headers, json=payload)
+        response.raise_for_status()
+
+        response_json = response.json()
+
+        # Parse response manually
+        try:
+            # The structure is candidates -> content -> parts -> text
+            # We need to handle potential multiple candidates or parts, but usually it's one.
+            text = response_json["candidates"][0]["content"]["parts"][0]["text"].strip()
+        except (KeyError, IndexError) as e:
+            # Log the response to help debugging if this fails
+            print(f"API Response Error: {json.dumps(response_json)}")
+            raise Exception(f"Unexpected API response format: {str(e)}")
+
+        # Markdown cleanup
         if text.startswith("```json"):
             text = text[7:]
         elif text.startswith("```"):
             text = text[3:]
         if text.endswith("```"):
             text = text[:-3]
+
         return json.loads(text)
+
     except Exception as e:
+        # Ensure we log the error for debugging
+        print(f"Error in generate_leads: {str(e)}")
         raise HTTPException(status_code=500, detail=str(e))
 
 @app.post("/support-chat")
