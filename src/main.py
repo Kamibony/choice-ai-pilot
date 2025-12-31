@@ -6,7 +6,7 @@ import pandas as pd
 import io
 import json
 import asyncio
-from vertexai.generative_models import GenerativeModel
+from vertexai.generative_models import GenerativeModel, Tool, grounding
 from src.scraper import scrape_site
 from src.analyzer import analyze_universal
 
@@ -21,6 +21,9 @@ class AuditRequest(BaseModel):
 
 class GeneratorRequest(BaseModel):
     prompt: str
+
+class ChatRequest(BaseModel):
+    message: str
 
 # --- FRONTEND (Unified Hub) ---
 HTML_APP = """
@@ -70,7 +73,8 @@ HTML_APP = """
                  <span class="text-purple-400">🟣 Choice (Brand)</span>
             </div>
         </div>
-        <div class="flex space-x-4">
+        <div class="flex items-center space-x-4">
+            <button onclick="toggleManual()" class="px-4 py-2 bg-slate-700 hover:bg-slate-600 text-white rounded-lg font-bold border border-slate-500 transition">📘 Nápověda</button>
             <span class="px-3 py-1 bg-green-900/30 text-green-400 rounded-full text-xs font-bold border border-green-500/20">VERITIC ACTIVE</span>
             <span class="px-3 py-1 bg-purple-900/30 text-purple-400 rounded-full text-xs font-bold border border-purple-500/20">CHOICE ACTIVE</span>
         </div>
@@ -223,7 +227,106 @@ HTML_APP = """
         </div>
     </div>
 
+    <!-- Manual Modal -->
+    <div id="manualModal" class="fixed inset-0 bg-black/80 hidden z-50 flex items-center justify-center backdrop-blur-sm">
+        <div class="glass p-8 rounded-2xl max-w-2xl w-full relative">
+            <button onclick="toggleManual()" class="absolute top-4 right-4 text-slate-400 hover:text-white"><i class="fas fa-times text-xl"></i></button>
+            <h2 class="text-2xl font-bold text-white mb-6">📚 Manuál Veritic Hub</h2>
+
+            <div class="space-y-6">
+                <div class="p-4 rounded-xl border border-red-500/30 bg-red-900/10">
+                    <h3 class="text-red-400 font-bold mb-2">🔴 RimLab (Research)</h3>
+                    <p class="text-slate-300 text-sm">Simuluje "paměť AI". Ukazuje, co si modely myslí, že vědí (riziko halucinace).</p>
+                </div>
+                <div class="p-4 rounded-xl border border-green-500/30 bg-green-900/10">
+                    <h3 class="text-green-400 font-bold mb-2">🟢 Veritic (Audit)</h3>
+                    <p class="text-slate-300 text-sm">Realita webu. Robot, který v reálném čase ověřuje fakta na stránce.</p>
+                </div>
+                <div class="p-4 rounded-xl border border-purple-500/30 bg-purple-900/10">
+                    <h3 class="text-purple-400 font-bold mb-2">🟣 Choice (Brand)</h3>
+                    <p class="text-slate-300 text-sm">Emoční analýza. Jak značka působí na zákazníka (archetypy, nálada).</p>
+                </div>
+
+                <div class="mt-4 pt-4 border-t border-slate-700">
+                    <p class="text-xs text-slate-500 uppercase font-bold mb-2">💡 Tip pro Prompty</p>
+                    <p class="text-sm text-slate-400">Buďte specifičtí. Místo "školy" napište "Soukromá gymnázia v Brně".</p>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Chat Widget -->
+    <div class="fixed bottom-6 right-6 z-40 flex flex-col items-end">
+
+        <!-- Chat Window -->
+        <div id="chatWindow" class="glass w-80 h-96 rounded-2xl mb-4 hidden flex flex-col overflow-hidden shadow-2xl border-slate-600">
+            <div class="bg-slate-800 p-4 border-b border-slate-700 flex justify-between items-center">
+                <h3 class="font-bold text-white"><i class="fas fa-robot mr-2"></i>Veritic Support</h3>
+                <button onclick="toggleChat()" class="text-slate-400 hover:text-white"><i class="fas fa-times"></i></button>
+            </div>
+            <div id="chatMessages" class="flex-1 p-4 overflow-y-auto space-y-3 text-sm">
+                <div class="bg-slate-700 text-slate-200 p-3 rounded-lg rounded-tl-none self-start max-w-[85%]">
+                    Ahoj! Jsem tu, abych ti pomohl pochopit RimLab, Veritic a Choice. Na co se chceš zeptat?
+                </div>
+            </div>
+            <div class="p-3 bg-slate-800 border-t border-slate-700 flex">
+                <input id="chatInput" type="text" class="flex-1 bg-slate-900 border border-slate-600 rounded-l-lg px-3 py-2 text-white text-sm focus:outline-none focus:border-blue-500" placeholder="Zeptej se..." onkeypress="if(event.key === 'Enter') sendChat()">
+                <button onclick="sendChat()" class="bg-blue-600 hover:bg-blue-500 text-white px-4 rounded-r-lg"><i class="fas fa-paper-plane"></i></button>
+            </div>
+        </div>
+
+        <!-- Toggle Button -->
+        <button onclick="toggleChat()" class="bg-blue-600 hover:bg-blue-500 text-white w-14 h-14 rounded-full shadow-lg flex items-center justify-center transition transform hover:scale-110">
+            <i class="fas fa-comment-dots text-2xl"></i>
+        </button>
+    </div>
+
     <script>
+        function toggleManual() {
+            const el = document.getElementById('manualModal');
+            el.classList.toggle('hidden');
+        }
+
+        function toggleChat() {
+            const el = document.getElementById('chatWindow');
+            el.classList.toggle('hidden');
+        }
+
+        async function sendChat() {
+            const input = document.getElementById('chatInput');
+            const msg = input.value.trim();
+            if(!msg) return;
+
+            const chatDiv = document.getElementById('chatMessages');
+
+            // User Msg
+            chatDiv.innerHTML += `<div class="bg-blue-600 text-white p-3 rounded-lg rounded-tr-none self-end max-w-[85%] ml-auto">${msg}</div>`;
+            input.value = '';
+            chatDiv.scrollTop = chatDiv.scrollHeight;
+
+            // Loading
+            const loadingId = 'loading-' + Date.now();
+            chatDiv.innerHTML += `<div id="${loadingId}" class="bg-slate-700 text-slate-200 p-3 rounded-lg rounded-tl-none self-start max-w-[85%]"><i class="fas fa-spinner fa-spin"></i></div>`;
+            chatDiv.scrollTop = chatDiv.scrollHeight;
+
+            try {
+                const res = await fetch('/support-chat', {
+                    method: 'POST',
+                    headers: {'Content-Type': 'application/json'},
+                    body: JSON.stringify({ message: msg })
+                });
+                const data = await res.json();
+
+                document.getElementById(loadingId).remove();
+                chatDiv.innerHTML += `<div class="bg-slate-700 text-slate-200 p-3 rounded-lg rounded-tl-none self-start max-w-[85%]">${data.reply}</div>`;
+
+            } catch(e) {
+                document.getElementById(loadingId).remove();
+                chatDiv.innerHTML += `<div class="text-red-400 text-xs p-2">Error connecting to support.</div>`;
+            }
+            chatDiv.scrollTop = chatDiv.scrollHeight;
+        }
+
         let leads = [];
 
         function switchTab(tab) {
@@ -435,25 +538,41 @@ async def perform_audit(request: AuditRequest):
 @app.post("/generate-leads")
 async def generate_leads(req: GeneratorRequest):
     try:
-        model = GenerativeModel("gemini-2.5-pro")
-        prompt = f"""
-        Generate a JSON list of 5 real institutions/companies based on this request: "{req.prompt}".
-        For each, provide:
-        - client_name (string)
-        - url (string, start with https://)
-        - industry (string)
-        - goals (string, inferred goals based on their nature)
-
-        Output strictly JSON array. No markdown.
-        """
+        tool = Tool.from_google_search_retrieval(google_search_retrieval=grounding.GoogleSearchRetrieval())
+        model = GenerativeModel("gemini-2.5-pro", tools=[tool])
+        prompt = f"QUERY: {req.prompt}. TASK: Search Google for the OFFICIAL websites of these institutions. CONSTRAINT: Do NOT guess. If the URL found is corporate (like 'ag.cz') but the entity is a school, keep searching for the school's domain (e.g., 'agstepanska.cz'). OUTPUT: Valid JSON array."
         response = await model.generate_content_async(prompt)
         text = response.text.strip()
         # Clean potential markdown
         if text.startswith("```json"):
             text = text[7:]
+        elif text.startswith("```"):
+            text = text[3:]
         if text.endswith("```"):
             text = text[:-3]
         return json.loads(text)
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.post("/support-chat")
+async def support_chat(req: ChatRequest):
+    try:
+        model = GenerativeModel("gemini-2.5-pro")
+        system_prompt = """Jsi technická podpora pro aplikaci Veritic Intelligence Hub.
+        Tvým úkolem je vysvětlovat uživatelům, jak systém funguje.
+
+        ZNALOSTNÍ BÁZE:
+        1. Modul RimLab (Červená): Ukazuje 'AI Memory Risk' - tedy to, co si ChatGPT pamatuje z tréninkových dat (často staré omyly).
+        2. Modul Veritic (Zelená): Ukazuje 'Web Reality' - fakta, která jsme právě našli na webu klienta.
+        3. Modul Choice (Fialová): Ukazuje 'Brand Perception' - marketingový dojem a archetyp.
+        4. Jak zadat prompt: Doporučuj specifické dotazy, např. 'Najdi 5 gymnázií v Praze', ne jen 'školy'.
+        5. Interpretace: Pokud Veritic (Zelená) nenajde data, AI (Červená) bude halucinovat. To je špatně.
+
+        Odpovídej stručně, nápomocně a pouze v Češtině."""
+
+        full_prompt = f"{system_prompt}\n\nDOTAZ UŽIVATELE: {req.message}"
+        response = await model.generate_content_async(full_prompt)
+        return {"reply": response.text}
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
