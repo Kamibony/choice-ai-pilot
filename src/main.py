@@ -569,7 +569,13 @@ async def generate_leads(req: GeneratorRequest):
             "Content-Type": "application/json; charset=utf-8"
         }
 
-        prompt_text = f"QUERY: {req.prompt}. TASK: Search Google for the OFFICIAL websites of these institutions. CONSTRAINT: Do NOT guess. If the URL found is corporate (like 'ag.cz') but the entity is a school, keep searching for the school's domain (e.g., 'agstepanska.cz'). OUTPUT: Valid JSON array."
+        prompt_text = f"""
+QUERY: {req.prompt}
+TASK: Search Google for the OFFICIAL websites.
+CONSTRAINT: Do NOT guess. If unsure, skip.
+OUTPUT FORMAT: You MUST return a strict JSON array of objects with exactly these keys: "client_name" and "url".
+EXAMPLE: [{{"client_name": "Gymnazium Jana Keplera", "url": "https://gjk.cz"}}]
+"""
 
         # Construct raw JSON payload
         payload = {
@@ -610,7 +616,7 @@ async def generate_leads(req: GeneratorRequest):
         normalized_data = []
         for item in data:
             # Map AI keys to Frontend keys
-            client_name = item.get('client_name') or item.get('name') or item.get('school') or item.get('title') or "Unknown"
+            client_name = item.get('client_name') or item.get('name') or item.get('school') or item.get('title') or item.get('institution') or item.get('entity') or "Unknown"
             url = item.get('url') or item.get('website') or item.get('link') or item.get('web') or "#"
 
             normalized_data.append({
