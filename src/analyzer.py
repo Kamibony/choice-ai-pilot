@@ -3,6 +3,7 @@ from vertexai.generative_models import GenerativeModel, GenerationConfig
 import json
 import os
 import time
+import asyncio
 
 # Konfigurácia (Európa)
 PROJECT_ID = os.environ.get("GOOGLE_CLOUD_PROJECT")
@@ -13,10 +14,9 @@ try:
 except Exception as e:
     print(f"Warning: Vertex AI init failed: {e}")
 
-def analyze_content(scraped_data: dict, client_brief: dict):
+async def analyze_universal(scraped_data: dict, client_brief: dict):
     """
-    AGENCY MODE 3.0: Deep Interrogation (Sériový výsluch)
-    Vykonáva sériu cielených otázok na AI, aby zistil skutočnú reputáciu.
+    Dual-Mode Analysis: Veritic (Logic) & Choice (Emotion).
     """
     
     try:
@@ -27,92 +27,94 @@ def analyze_content(scraped_data: dict, client_brief: dict):
     client = client_brief.get('client_name')
     goals = client_brief.get('goals')
     industry = client_brief.get('industry')
+    web_content = scraped_data.get('content_preview', '')[:5000] # Limit content size
     
-    print(f"--- ZAČÍNAM SÉRIOVÝ VÝSLUCH PRE: {client} ---")
+    print(f"--- STARTING UNIVERSAL ANALYSIS FOR: {client} ---")
 
-    # --- KROK 1: BLIND REPUTATION CHECK (Bez webu) ---
-    # Pýtame sa AI, čo vie o firme len z názvu.
-    print("1. Fáza: Test Znalosti (Blind Test)...")
-    q1_prompt = f"""
-    Jsi nezávislý analytik značek.
-    Otázka: Co přesně víš o entitě "{client}" v segmentu "{industry}"? 
-    Buď upřímný. Pokud ji neznáš, řekni "Neznámá entita". 
-    Pokud ji znáš, jaké jsou její 3 hlavní atributy (pozitivní i negativní)?
-    Odpověz stručně v češtině.
-    """
-    res1 = model.generate_content(q1_prompt).text
-
-    # --- KROK 2: GOAL ALIGNMENT CHECK (Validace Cílů) ---
-    # Konfrontujeme AI: "Klient chce byť X, je to pravda?"
-    print("2. Fáza: Validace Ambicí...")
-    q2_prompt = f"""
-    Kontext: Entita "{client}" tvrdí, že její identita je: "{goals}".
+    # --- Call A: VERITIC LOGIC (Facts & Audit) ---
+    veritic_prompt = f"""
+    ROLE: Veritic Auditor. You verify facts logically.
     
-    Úkol kritika:
-    Na základě tvých znalostí (a předchozí odpovědi: "{res1}"), je toto tvrzení pravdivé? 
-    Vnímá trh tuto firmu takto? Ano/Ne a proč? Buď kritický.
-    Odpověz stručně v češtině.
-    """
-    res2 = model.generate_content(q2_prompt).text
-
-    # --- KROK 3: FINAL SYNTHESIS & WEB GAP ANALYSIS ---
-    # Spojíme všetko dokopy aj s webom.
-    print("3. Fáza: Finální Syntéza s Webem...")
-    final_prompt = f"""
-    Jsi AI Perception Auditor. Provedi finální syntézu reputace.
-
-    VSTUPNÍ DATA Z VÝSLUCHU:
-    1. CO VÍ AI (Memory): {res1}
-    2. NÁZOR AI NA CÍLE (Critique): {res2}
-    3. REALITA NA WEBU (Scraped): {scraped_data.get('content_preview')}... (zkráceno)
-
-    ÚKOL:
-    Vygeneruj finální JSON report v Češtině.
-    Porovnej "Co AI ví" vs "Co je na webu" vs "Co klient chce".
+    INPUT DATA:
+    - Client Name: {client}
+    - Industry: {industry}
+    - Scraped Web Content: {web_content}
     
-    VÝSTUP JSON:
+    TASK:
+    Extract specific data points and verify integrity.
+    1. Extract: Email, Phone, Director/CEO, Opening Hours.
+    2. Check Missing Data: What crucial contact info is missing?
+    3. Integrity Score: Rate 0-100 based on completeness and transparency of contact info.
+
+    OUTPUT JSON format:
     {{
-        "summary": {{
-            "overall_score": int, // 0-100 (Skóre reputační autority)
-            "page_title": "{scraped_data.get('title')}"
+        "integrity_score": int,
+        "extracted_data": {{
+            "email": "...",
+            "phone": "...",
+            "director": "...",
+            "hours": "..."
         }},
-        "insights": [
-            {{ 
-                "type": "info", 
-                "title": "Fáze 1: AI Paměť", 
-                "message": "Shrnutí toho, co o firmě víš (z odpovědi: {res1})" 
-            }},
-            {{ 
-                "type": "warning", 
-                "title": "Fáze 2: Reality Check", 
-                "message": "Kritické zhodnocení cílů (z odpovědi: {res2})" 
-            }},
-            {{ 
-                "type": "success", 
-                "title": "Fáze 3: Web Důkazy", 
-                "message": "Podporuje obsah webu tyto cíle? Nebo je tam 'Gap'?" 
-            }}
-        ],
-        "recommendation": "Jedna strategická rada, jak zlepšit vnímání AI."
+        "missing_data": ["list", "of", "missing", "items"]
     }}
     """
+
+    # --- Call B: CHOICE LOGIC (Brand & Emotion) ---
+    choice_prompt = f"""
+    ROLE: Brand Psychologist. You analyze emotional resonance and archetype.
     
+    INPUT DATA:
+    - Client Name: {client}
+    - Stated Goals: {goals}
+    - Scraped Web Content: {web_content}
+
+    TASK:
+    Analyze the brand's soul.
+    1. Identify Brand Archetype (e.g., Hero, Sage, Caregiver).
+    2. Analyze Sentiment/Vibe (3 adjectives).
+    3. Alignment Score: Rate 0-100 on how well the web content matches the Stated Goals.
+
+    OUTPUT JSON format:
+    {{
+        "brand_score": int,
+        "archetype": "...",
+        "vibe": ["adj1", "adj2", "adj3"],
+        "alignment_analysis": "Short comment on goals vs reality."
+    }}
+    """
+
+    # Execute Parallel Calls
     try:
-        final_response = model.generate_content(
-            final_prompt,
-            generation_config=GenerationConfig(
-                response_mime_type="application/json",
-                temperature=0.3
+        response_a, response_b = await asyncio.gather(
+            model.generate_content_async(
+                veritic_prompt,
+                generation_config=GenerationConfig(response_mime_type="application/json")
+            ),
+            model.generate_content_async(
+                choice_prompt,
+                generation_config=GenerationConfig(response_mime_type="application/json")
             )
         )
-        return json.loads(final_response.text)
+
+        veritic_result = json.loads(response_a.text)
+        choice_result = json.loads(response_b.text)
+
+        return {
+            "veritic_result": veritic_result,
+            "choice_result": choice_result,
+            "metadata": {
+                "client": client,
+                "url": scraped_data.get('url', 'N/A')
+            }
+        }
+
     except Exception as e:
-        print(f"Chyba ve finále: {e}")
+        print(f"Analysis Error: {e}")
         return _error_response(str(e))
 
 def _error_response(msg):
     return {
-        "summary": { "overall_score": 0, "page_title": "Chyba Analýzy" },
-        "insights": [{ "type": "warning", "title": "Error", "message": f"Selhání modelu: {msg}" }],
-        "recommendation": "Zkuste opakovat analýzu."
+        "veritic_result": { "integrity_score": 0, "extracted_data": {}, "missing_data": ["Analysis Failed"] },
+        "choice_result": { "brand_score": 0, "archetype": "Unknown", "vibe": [], "alignment_analysis": f"Error: {msg}" },
+        "metadata": { "error": True }
     }

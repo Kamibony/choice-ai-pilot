@@ -6,3 +6,6 @@ google-cloud-aiplatform
 playwright
 pydantic
 python-dotenv
+python-multipart
+pandas
+openpyxl

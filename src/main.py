@@ -1,206 +1,349 @@
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, HTTPException, UploadFile, File
 from fastapi.responses import HTMLResponse
 from pydantic import BaseModel
 from typing import List, Optional
+import pandas as pd
+import io
+import json
+import asyncio
+from vertexai.generative_models import GenerativeModel
 from src.scraper import scrape_site
-from src.analyzer import analyze_content
+from src.analyzer import analyze_universal
 
 app = FastAPI()
 
-# --- Dátový Model ---
+# --- Data Models ---
 class AuditRequest(BaseModel):
     url: str
     client_name: str
     industry: str
-    goals: str  # TOTO JE NOVÉ: Detailný popis identity
+    goals: str
 
-# --- FRONTEND ---
+class GeneratorRequest(BaseModel):
+    prompt: str
+
+# --- FRONTEND (Unified Hub) ---
 HTML_APP = """
 <!DOCTYPE html>
-<html lang="sk">
+<html lang="en">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>CHOICE AI | Reputation Engine</title>
+    <title>Veritic Unified Hub</title>
     <script src="https://cdn.tailwindcss.com"></script>
+    <script>
+        tailwind.config = {
+            darkMode: 'class',
+            theme: {
+                extend: {
+                    colors: {
+                        slate: { 850: '#1e293b' }
+                    }
+                }
+            }
+        }
+    </script>
     <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css" rel="stylesheet">
     <style>
         body { background-color: #0f172a; color: #e2e8f0; font-family: 'Inter', sans-serif; }
         .glass { background: rgba(30, 41, 59, 0.7); backdrop-filter: blur(10px); border: 1px solid rgba(255, 255, 255, 0.1); }
-        .gradient-text { background: linear-gradient(45deg, #3b82f6, #8b5cf6); -webkit-background-clip: text; -webkit-text-fill-color: transparent; }
-        .loader { border-top-color: #3b82f6; -webkit-animation: spinner 1.5s linear infinite; animation: spinner 1.5s linear infinite; }
+        .gradient-text { background: linear-gradient(45deg, #10b981, #8b5cf6); -webkit-background-clip: text; -webkit-text-fill-color: transparent; }
+        .veritic-border { border-left: 4px solid #10b981; }
+        .choice-border { border-left: 4px solid #8b5cf6; }
+        .loader { border-top-color: #10b981; animation: spinner 1.5s linear infinite; }
         @keyframes spinner { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }
     </style>
 </head>
-<body class="min-h-screen flex flex-col items-center py-10 px-4">
+<body class="min-h-screen p-6">
 
-    <div class="text-center mb-10">
-        <h1 class="text-5xl font-bold mb-2"><span class="gradient-text">CHOICE AI</span> Perception</h1>
-        <p class="text-slate-400">Ako vidí AI vašu značku?</p>
-    </div>
+    <!-- Header -->
+    <header class="flex justify-between items-center mb-10">
+        <div>
+            <h1 class="text-3xl font-bold gradient-text">Veritic Intelligence Hub</h1>
+            <p class="text-slate-400 text-sm">Unified Audit & Choice Analysis Engine</p>
+        </div>
+        <div class="flex space-x-4">
+            <span class="px-3 py-1 bg-green-900/30 text-green-400 rounded-full text-xs font-bold border border-green-500/20">VERITIC ACTIVE</span>
+            <span class="px-3 py-1 bg-purple-900/30 text-purple-400 rounded-full text-xs font-bold border border-purple-500/20">CHOICE ACTIVE</span>
+        </div>
+    </header>
 
-    <div class="w-full max-w-5xl grid grid-cols-1 md:grid-cols-3 gap-6">
+    <!-- Main Grid -->
+    <div class="grid grid-cols-1 lg:grid-cols-12 gap-6">
         
-        <div class="md:col-span-1 glass p-6 rounded-2xl h-fit">
-            <h2 class="text-xl font-semibold mb-4 border-b border-slate-600 pb-2">Definícia Značky</h2>
-            <form id="auditForm" class="space-y-4">
-                <div>
-                    <label class="block text-xs text-blue-400 uppercase font-bold mb-1">Meno Entity (Presne)</label>
-                    <input type="text" id="client_name" required placeholder="Napr. Česká zemědělská univerzita" class="w-full bg-slate-800 border border-slate-600 rounded-lg p-2 focus:ring-2 focus:ring-blue-500 outline-none text-white text-sm">
-                    <p class="text-[10px] text-slate-500 mt-1">Musí byť presný názov, aby ho AI spoznala.</p>
-                </div>
-                <div>
-                    <label class="block text-xs text-slate-400 uppercase font-bold mb-1">URL Webu</label>
-                    <input type="url" id="url" required placeholder="https://..." class="w-full bg-slate-800 border border-slate-600 rounded-lg p-2 focus:ring-2 focus:ring-blue-500 outline-none text-white text-sm">
-                </div>
-                <div>
-                    <label class="block text-xs text-slate-400 uppercase font-bold mb-1">Segment</label>
-                    <select id="industry" class="w-full bg-slate-800 border border-slate-600 rounded-lg p-2 text-sm text-white">
-                        <option value="Education">Vzdelávanie / Univerzita</option>
-                        <option value="E-commerce">E-commerce</option>
-                        <option value="SaaS">SaaS / Tech</option>
-                        <option value="Services">Služby</option>
-                    </select>
-                </div>
-                
-                <div>
-                    <label class="block text-xs text-green-400 uppercase font-bold mb-1">Cieľová Identita (Čo chcete byť?)</label>
-                    <textarea id="goals" rows="4" required placeholder="Napr: Sme moderná technologická univerzita zameraná na AI a inovácie. Nechceme byť vnímaní len ako 'hnojáreň'." class="w-full bg-slate-800 border border-slate-600 rounded-lg p-2 focus:ring-2 focus:ring-green-500 outline-none text-white text-sm"></textarea>
-                </div>
+        <!-- Left Panel: Campaign Manager -->
+        <div class="lg:col-span-4 space-y-6">
 
-                <button type="submit" class="w-full bg-gradient-to-r from-blue-600 to-violet-600 hover:from-blue-500 hover:to-violet-500 text-white font-bold py-3 rounded-xl transition transform hover:scale-105 shadow-lg mt-4">
-                    <i class="fas fa-brain mr-2"></i> Zistiť názor AI
+            <!-- Tabs -->
+            <div class="glass p-1 rounded-xl flex space-x-1">
+                <button onclick="switchTab('ai')" id="tab-ai" class="flex-1 py-2 rounded-lg text-sm font-bold bg-slate-700 text-white transition">AI Generator</button>
+                <button onclick="switchTab('csv')" id="tab-csv" class="flex-1 py-2 rounded-lg text-sm font-bold text-slate-400 hover:text-white transition">CSV Upload</button>
+            </div>
+
+            <!-- Tab Content: AI -->
+            <div id="content-ai" class="glass p-6 rounded-2xl">
+                <label class="block text-xs text-slate-400 uppercase font-bold mb-2">Prompt for Leads</label>
+                <textarea id="aiPrompt" rows="3" class="w-full bg-slate-900 border border-slate-700 rounded-lg p-3 text-sm text-white focus:ring-2 focus:ring-green-500 outline-none" placeholder="Find 5 high schools in Prague..."></textarea>
+                <button onclick="generateLeads()" class="w-full mt-4 bg-green-600 hover:bg-green-500 text-white font-bold py-2 rounded-lg transition">
+                    <i class="fas fa-magic mr-2"></i> Generate Leads
                 </button>
-            </form>
+            </div>
+
+            <!-- Tab Content: CSV -->
+            <div id="content-csv" class="glass p-6 rounded-2xl hidden">
+                <label class="block text-xs text-slate-400 uppercase font-bold mb-2">Upload File (CSV/XLSX)</label>
+                <input type="file" id="csvInput" class="w-full text-sm text-slate-400 file:mr-4 file:py-2 file:px-4 file:rounded-full file:border-0 file:text-sm file:font-semibold file:bg-slate-700 file:text-white hover:file:bg-slate-600"/>
+                <button onclick="uploadLeads()" class="w-full mt-4 bg-blue-600 hover:bg-blue-500 text-white font-bold py-2 rounded-lg transition">
+                    <i class="fas fa-upload mr-2"></i> Upload & Parse
+                </button>
+            </div>
+
+            <!-- Campaign Controls -->
+            <div class="glass p-6 rounded-2xl">
+                 <div class="flex justify-between items-center mb-4">
+                    <h3 class="font-bold text-white">Campaign Queue</h3>
+                    <span id="queueCount" class="text-xs bg-slate-700 px-2 py-1 rounded text-white">0</span>
+                 </div>
+                 <button onclick="startCampaign()" id="btnStart" class="w-full bg-gradient-to-r from-green-600 to-purple-600 text-white font-bold py-3 rounded-xl shadow-lg transform active:scale-95 transition disabled:opacity-50 disabled:cursor-not-allowed" disabled>
+                    START CAMPAIGN
+                 </button>
+            </div>
+
         </div>
 
-        <div class="md:col-span-2 glass p-6 rounded-2xl min-h-[500px] relative">
-            
-            <div id="loader" class="hidden absolute inset-0 flex flex-col items-center justify-center bg-slate-900/90 rounded-2xl z-20">
-                <div class="loader ease-linear rounded-full border-4 border-t-4 border-gray-200 h-12 w-12 mb-4"></div>
-                <p class="text-blue-400 animate-pulse font-mono">Pýtam sa Gemini 2.5 Pro na vašu reputáciu...</p>
+        <!-- Right Panel: Data & Results -->
+        <div class="lg:col-span-8 space-y-6">
+
+            <!-- Table -->
+            <div class="glass rounded-2xl overflow-hidden min-h-[300px]">
+                <table class="w-full text-left border-collapse">
+                    <thead class="bg-slate-800 text-xs uppercase text-slate-400">
+                        <tr>
+                            <th class="p-4">Name</th>
+                            <th class="p-4">URL</th>
+                            <th class="p-4">Status</th>
+                            <th class="p-4 text-right">Action</th>
+                        </tr>
+                    </thead>
+                    <tbody id="campaignTable" class="text-sm divide-y divide-slate-700">
+                        <!-- Rows injected here -->
+                        <tr class="text-slate-500 text-center"><td colspan="4" class="p-8">No leads loaded. Generate or Upload to start.</td></tr>
+                    </tbody>
+                </table>
             </div>
 
-            <div id="emptyState" class="flex flex-col items-center justify-center h-full text-slate-500">
-                <i class="fas fa-robot text-6xl mb-4 opacity-50"></i>
-                <p>Vyplňte formulár a zistite, či vás AI pozná.</p>
-            </div>
-
-            <div id="results" class="hidden space-y-6">
-                <div class="flex justify-between items-start border-b border-slate-700 pb-4">
-                    <div>
-                        <h2 class="text-2xl font-bold text-white" id="res_title">--</h2>
-                        <div class="text-sm text-slate-400 mt-1">Identita podľa AI (Gemini Memory)</div>
-                    </div>
-                    <div class="text-center bg-slate-800 p-3 rounded-lg border border-slate-600">
-                        <span class="block text-[10px] text-slate-400 uppercase tracking-wider">AI Autorita</span>
-                        <span class="text-4xl font-bold text-transparent bg-clip-text bg-gradient-to-r from-green-400 to-blue-500" id="res_score">--</span>
-                    </div>
+            <!-- Results View -->
+            <div id="resultCard" class="glass p-6 rounded-2xl hidden animate-fade-in">
+                <div class="flex justify-between items-center mb-6">
+                    <h2 id="resName" class="text-2xl font-bold text-white">Result Name</h2>
+                    <a id="resLink" href="#" target="_blank" class="text-blue-400 text-sm hover:underline"><i class="fas fa-external-link-alt"></i> Open Web</a>
                 </div>
 
-                <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
-                    <div class="bg-blue-900/20 p-4 rounded-xl border border-blue-500/30">
-                        <div class="flex items-center mb-2">
-                            <i class="fas fa-brain text-blue-400 mr-2"></i>
-                            <span class="text-xs font-bold text-blue-400 uppercase">Aktuálne vnímanie AI</span>
-                        </div>
-                        <p class="text-sm text-slate-300" id="perception_text">--</p>
-                    </div>
+                <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
                     
-                    <div class="bg-purple-900/20 p-4 rounded-xl border border-purple-500/30">
-                         <div class="flex items-center mb-2">
-                            <i class="fas fa-globe text-purple-400 mr-2"></i>
-                            <span class="text-xs font-bold text-purple-400 uppercase">Web vs. Ciele</span>
+                    <!-- Veritic Column -->
+                    <div class="bg-slate-900/50 p-5 rounded-xl border border-green-500/30 relative overflow-hidden">
+                        <div class="absolute top-0 left-0 w-1 h-full bg-green-500"></div>
+                        <h3 class="text-green-400 font-bold uppercase text-xs mb-4 flex items-center"><i class="fas fa-shield-alt mr-2"></i> Veritic Audit</h3>
+
+                        <div class="flex justify-between items-center mb-4">
+                            <span class="text-slate-400 text-sm">Integrity Score</span>
+                            <span id="veriticScore" class="text-2xl font-bold text-white">--</span>
                         </div>
-                        <p class="text-sm text-slate-300" id="reality_text">--</p>
+
+                        <div class="space-y-2">
+                            <p class="text-xs text-slate-500 uppercase">Missing Data</p>
+                            <div id="veriticMissing" class="flex flex-wrap gap-2"></div>
+                        </div>
+
+                        <div class="mt-4 pt-4 border-t border-slate-700">
+                            <p class="text-xs text-slate-500 uppercase mb-2">Extracted</p>
+                            <ul id="veriticExtracted" class="text-sm space-y-1 text-slate-300"></ul>
+                        </div>
                     </div>
-                </div>
 
-                <div>
-                    <h3 class="text-sm font-bold text-slate-400 uppercase mb-3">Detailné Postrehy</h3>
-                    <div id="insights_list" class="space-y-3"></div>
-                </div>
+                    <!-- Choice Column -->
+                    <div class="bg-slate-900/50 p-5 rounded-xl border border-purple-500/30 relative overflow-hidden">
+                        <div class="absolute top-0 left-0 w-1 h-full bg-purple-500"></div>
+                        <h3 class="text-purple-400 font-bold uppercase text-xs mb-4 flex items-center"><i class="fas fa-heart mr-2"></i> Choice Analysis</h3>
 
-                <div class="bg-slate-800 p-4 rounded-xl border-l-4 border-green-500">
-                    <h4 class="text-green-400 font-bold mb-1 text-sm"><i class="fas fa-magic mr-2"></i>AI Optimalizácia</h4>
-                    <p class="text-sm text-slate-300 italic" id="res_rec">--</p>
+                        <div class="flex justify-between items-center mb-4">
+                            <span class="text-slate-400 text-sm">Brand Score</span>
+                            <span id="choiceScore" class="text-2xl font-bold text-white">--</span>
+                        </div>
+
+                        <div class="mb-4">
+                            <p class="text-xs text-slate-500 uppercase">Archetype</p>
+                            <p id="choiceArchetype" class="text-lg font-bold text-white">--</p>
+                        </div>
+
+                        <div>
+                            <p class="text-xs text-slate-500 uppercase mb-2">Emotional Vibe</p>
+                            <div id="choiceVibe" class="flex flex-wrap gap-2"></div>
+                        </div>
+
+                        <div class="mt-4 pt-4 border-t border-slate-700">
+                             <p class="text-xs text-slate-500 uppercase mb-1">Alignment</p>
+                             <p id="choiceAlignment" class="text-xs italic text-slate-400">--</p>
+                        </div>
+                    </div>
+
                 </div>
             </div>
+
         </div>
     </div>
 
     <script>
-        document.getElementById('auditForm').addEventListener('submit', async (e) => {
-            e.preventDefault();
-            
-            const loader = document.getElementById('loader');
-            const emptyState = document.getElementById('emptyState');
-            const results = document.getElementById('results');
-            
-            loader.classList.remove('hidden');
-            emptyState.classList.add('hidden');
-            results.classList.add('hidden');
+        let leads = [];
 
-            const payload = {
-                url: document.getElementById('url').value,
-                client_name: document.getElementById('client_name').value,
-                industry: document.getElementById('industry').value,
-                goals: document.getElementById('goals').value // Odosielame nový input
-            };
+        function switchTab(tab) {
+            document.querySelectorAll('[id^="content-"]').forEach(el => el.classList.add('hidden'));
+            document.getElementById('content-' + tab).classList.remove('hidden');
+            
+            document.getElementById('tab-ai').className = tab === 'ai' ? 'flex-1 py-2 rounded-lg text-sm font-bold bg-slate-700 text-white transition' : 'flex-1 py-2 rounded-lg text-sm font-bold text-slate-400 hover:text-white transition';
+            document.getElementById('tab-csv').className = tab === 'csv' ? 'flex-1 py-2 rounded-lg text-sm font-bold bg-slate-700 text-white transition' : 'flex-1 py-2 rounded-lg text-sm font-bold text-slate-400 hover:text-white transition';
+        }
+
+        async function generateLeads() {
+            const prompt = document.getElementById('aiPrompt').value;
+            if(!prompt) return alert("Enter a prompt");
+            
+            try {
+                const res = await fetch('/generate-leads', {
+                    method: 'POST',
+                    headers: {'Content-Type': 'application/json'},
+                    body: JSON.stringify({ prompt })
+                });
+                const data = await res.json();
+                loadTable(data);
+            } catch(e) { alert(e); }
+        }
+
+        async function uploadLeads() {
+            const fileInput = document.getElementById('csvInput');
+            if(fileInput.files.length === 0) return alert("Select a file");
+
+            const formData = new FormData();
+            formData.append('file', fileInput.files[0]);
 
             try {
-                const response = await fetch('/audit', {
+                const res = await fetch('/upload-leads', {
                     method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify(payload)
+                    body: formData
                 });
+                const data = await res.json();
+                loadTable(data);
+            } catch(e) { alert(e); }
+        }
 
-                if (!response.ok) throw new Error('Chyba komunikácie');
+        function loadTable(data) {
+            leads = data.map(d => ({...d, status: 'Ready', result: null}));
+            renderTable();
+            document.getElementById('btnStart').disabled = false;
+            document.getElementById('queueCount').innerText = leads.length;
+        }
 
-                const data = await response.json();
-                renderResults(data);
+        function renderTable() {
+            const tbody = document.getElementById('campaignTable');
+            tbody.innerHTML = '';
+            leads.forEach((lead, idx) => {
+                let statusColor = 'text-slate-400';
+                if(lead.status === 'Processing') statusColor = 'text-blue-400 animate-pulse';
+                if(lead.status === 'Done') statusColor = 'text-green-400';
+                if(lead.status === 'Error') statusColor = 'text-red-400';
 
-            } catch (error) {
-                alert("Chyba: " + error.message);
-                emptyState.classList.remove('hidden');
-            } finally {
-                loader.classList.add('hidden');
-            }
-        });
-
-        function renderResults(data) {
-            const r = document.getElementById('results');
-            r.classList.remove('hidden');
-
-            document.getElementById('res_title').innerText = data.summary.page_title;
-            document.getElementById('res_score').innerText = data.summary.overall_score + "/100";
-            
-            // Mapovanie špecifických polí z nového promptu
-            // Prvý insight použijeme ako "Vnímanie AI"
-            if(data.insights.length > 0) {
-                document.getElementById('perception_text').innerText = data.insights[0].message;
-            }
-            // Druhý insight použijeme ako "Reality Check"
-            if(data.insights.length > 1) {
-                document.getElementById('reality_text').innerText = data.insights[1].message;
-            }
-
-            document.getElementById('res_rec').innerText = data.recommendation;
-
-            const list = document.getElementById('insights_list');
-            list.innerHTML = '';
-            
-            // Zobrazíme len 3. insight a ďalšie, aby sme neopakovali to isté
-            data.insights.slice(2).forEach(insight => {
-                let color = insight.type === 'warning' ? 'text-yellow-400' : 'text-blue-400';
-                list.innerHTML += `
-                    <div class="bg-slate-800/50 p-3 rounded border border-slate-700">
-                        <div class="font-bold text-xs ${color} mb-1 uppercase">${insight.title}</div>
-                        <div class="text-sm text-slate-300">${insight.message}</div>
-                    </div>
+                const tr = document.createElement('tr');
+                tr.className = 'hover:bg-slate-800/50 transition';
+                tr.innerHTML = `
+                    <td class="p-4 font-medium text-white">${lead.client_name}</td>
+                    <td class="p-4 text-blue-400 truncate max-w-[150px]"><a href="${lead.url}" target="_blank">${lead.url}</a></td>
+                    <td class="p-4 ${statusColor} font-bold text-xs uppercase">${lead.status}</td>
+                    <td class="p-4 text-right">
+                        ${lead.result ? `<button onclick="viewResult(${idx})" class="bg-slate-700 hover:bg-slate-600 text-white text-xs px-2 py-1 rounded">View</button>` : ''}
+                    </td>
                 `;
+                tbody.appendChild(tr);
             });
         }
+
+        async function startCampaign() {
+            document.getElementById('btnStart').disabled = true;
+
+            for (let i = 0; i < leads.length; i++) {
+                if(leads[i].status === 'Done') continue;
+
+                leads[i].status = 'Processing';
+                renderTable();
+
+                try {
+                    const res = await fetch('/audit', {
+                        method: 'POST',
+                        headers: {'Content-Type': 'application/json'},
+                        body: JSON.stringify({
+                            url: leads[i].url,
+                            client_name: leads[i].client_name,
+                            industry: leads[i].industry || 'General',
+                            goals: leads[i].goals || 'Analyze reputation'
+                        })
+                    });
+
+                    if(!res.ok) throw new Error("Failed");
+
+                    const result = await res.json();
+                    leads[i].status = 'Done';
+                    leads[i].result = result;
+                    renderTable();
+                    viewResult(i); // Auto-show latest
+
+                } catch (e) {
+                    leads[i].status = 'Error';
+                    renderTable();
+                }
+            }
+            document.getElementById('btnStart').disabled = false;
+        }
+
+        function viewResult(idx) {
+            const data = leads[idx].result;
+            if(!data) return;
+
+            const card = document.getElementById('resultCard');
+            card.classList.remove('hidden');
+
+            document.getElementById('resName').innerText = data.metadata.client;
+            document.getElementById('resLink').href = data.metadata.url;
+
+            // Veritic
+            const v = data.veritic_result;
+            document.getElementById('veriticScore').innerText = v.integrity_score + "/100";
+            
+            const vMissing = document.getElementById('veriticMissing');
+            vMissing.innerHTML = '';
+            v.missing_data.forEach(m => {
+                vMissing.innerHTML += `<span class="px-2 py-1 bg-red-900/30 text-red-400 rounded text-[10px] font-bold border border-red-500/20">${m}</span>`;
+            });
+            if(v.missing_data.length === 0) vMissing.innerHTML = '<span class="text-green-500 text-xs">All Clear</span>';
+
+            const vExt = document.getElementById('veriticExtracted');
+            vExt.innerHTML = '';
+            for (const [key, val] of Object.entries(v.extracted_data)) {
+                vExt.innerHTML += `<li><strong class="capitalize text-slate-400">${key}:</strong> ${val}</li>`;
+            }
+
+            // Choice
+            const c = data.choice_result;
+            document.getElementById('choiceScore').innerText = c.brand_score + "/100";
+            document.getElementById('choiceArchetype').innerText = c.archetype;
+            document.getElementById('choiceAlignment').innerText = '"' + c.alignment_analysis + '"';
+
+            const cVibe = document.getElementById('choiceVibe');
+            cVibe.innerHTML = '';
+            c.vibe.forEach(adj => {
+                 cVibe.innerHTML += `<span class="px-2 py-1 bg-purple-900/30 text-purple-300 rounded text-[10px] font-bold border border-purple-500/20">${adj}</span>`;
+            });
+        }
+
     </script>
 </body>
 </html>
@@ -214,7 +357,64 @@ async def read_root():
 async def perform_audit(request: AuditRequest):
     scraped_data = await scrape_site(request.url)
     if not scraped_data:
-        raise HTTPException(status_code=400, detail="Could not scrape URL")
+         # Fallback if scraping fails, analysis might still want to run on empty data or handle it
+         scraped_data = {"content_preview": "", "title": "Scraping Failed", "url": request.url}
     
-    result = analyze_content(scraped_data, request.dict())
+    result = await analyze_universal(scraped_data, request.dict())
     return result
+
+@app.post("/generate-leads")
+async def generate_leads(req: GeneratorRequest):
+    try:
+        model = GenerativeModel("gemini-2.5-pro")
+        prompt = f"""
+        Generate a JSON list of 5 real institutions/companies based on this request: "{req.prompt}".
+        For each, provide:
+        - client_name (string)
+        - url (string, start with https://)
+        - industry (string)
+        - goals (string, inferred goals based on their nature)
+
+        Output strictly JSON array. No markdown.
+        """
+        response = await model.generate_content_async(prompt)
+        text = response.text.strip()
+        # Clean potential markdown
+        if text.startswith("```json"):
+            text = text[7:]
+        if text.endswith("```"):
+            text = text[:-3]
+        return json.loads(text)
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.post("/upload-leads")
+async def upload_leads(file: UploadFile = File(...)):
+    try:
+        contents = await file.read()
+        if file.filename.endswith('.csv'):
+            df = pd.read_csv(io.BytesIO(contents))
+        elif file.filename.endswith(('.xls', '.xlsx')):
+            df = pd.read_excel(io.BytesIO(contents))
+        else:
+            raise HTTPException(status_code=400, detail="Invalid file type")
+
+        # Normalize columns
+        df.columns = [c.lower() for c in df.columns]
+        # Rename common variations
+        rename_map = {
+            'name': 'client_name', 'company': 'client_name', 'institution': 'client_name',
+            'web': 'url', 'website': 'url', 'link': 'url'
+        }
+        df.rename(columns=rename_map, inplace=True)
+
+        # Fill missing
+        if 'goals' not in df.columns:
+            df['goals'] = "General Audit"
+        if 'industry' not in df.columns:
+            df['industry'] = "Unknown"
+
+        return df[['client_name', 'url', 'industry', 'goals']].to_dict(orient='records')
+
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
