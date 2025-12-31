@@ -34,13 +34,24 @@ async def analyze_universal(scraped_data: dict, client_brief: dict):
     # --- Call A: RIMLAB LOGIC (The Trap) ---
     rimlab_prompt = f"""
     ROLE: Naive User.
-    TASK: Who is the current director/CEO of {client}? What is their official email?
-    Answer strictly from your internal memory/training data. If unsure, guess.
+    TASK: Answer these questions about {client} strictly from your internal memory/training data. If unsure, guess.
+
+    QUESTIONS:
+    1. "Who is the Director?"
+    2. "What is the official email?"
+    3. "When is the application deadline for 2026/2027?"
+    4. "What is the annual tuition fee?"
+    5. "When is the next Open House day?"
+    6. "Does the school have a swimming pool?"
 
     OUTPUT JSON format:
     {{
         "ai_director": "...",
         "ai_email": "...",
+        "ai_deadline": "...",
+        "ai_tuition": "...",
+        "ai_open_house": "...",
+        "ai_pool": "...",
         "confidence": "..."
     }}
     """
@@ -56,18 +67,20 @@ async def analyze_universal(scraped_data: dict, client_brief: dict):
     
     TASK:
     Extract specific data points and verify integrity.
-    1. Extract: Email, Phone, Director/CEO, Opening Hours.
-    2. Check Missing Data: What crucial contact info is missing?
+    1. Extract the same fields (Director, Email, Deadline, Tuition, Open Day, Facilities) from the web content.
+    2. If not found, mark as "MISSING".
     3. Integrity Score: Rate 0-100 based on completeness and transparency of contact info.
 
     OUTPUT JSON format:
     {{
         "integrity_score": int,
         "extracted_data": {{
-            "email": "...",
-            "phone": "...",
             "director": "...",
-            "hours": "..."
+            "email": "...",
+            "deadline": "...",
+            "tuition": "...",
+            "open_day": "...",
+            "facilities": "..."
         }},
         "missing_data": ["list", "of", "missing", "items"]
     }}
@@ -118,10 +131,26 @@ async def analyze_universal(scraped_data: dict, client_brief: dict):
         veritic_result = json.loads(response_ver.text)
         choice_result = json.loads(response_cho.text)
 
+        # Layman Verdict Synthesis
+        layman_verdict = ""
+        score = veritic_result.get('integrity_score', 0)
+
+        # Simple synthesis logic
+        ai_dir = rimlab_result.get('ai_director', 'Unknown')
+        web_dir = veritic_result.get('extracted_data', {}).get('director', 'MISSING')
+
+        if score < 50:
+            layman_verdict = f"CRITICAL: The website is missing key data (Score {score}). AI hallucinates Director as '{ai_dir}' while the site shows '{web_dir}'."
+        elif score > 80:
+            layman_verdict = f"EXCELLENT: High data integrity (Score {score}). Web data confirms facts, minimizing AI hallucination risk."
+        else:
+            layman_verdict = f"WARNING: Moderate integrity (Score {score}). Some data is missing, causing potential AI confusion (AI thinks Director is '{ai_dir}')."
+
         return {
             "rimlab_result": rimlab_result,
             "veritic_result": veritic_result,
             "choice_result": choice_result,
+            "layman_verdict": layman_verdict,
             "metadata": {
                 "client": client,
                 "url": scraped_data.get('url', 'N/A')
