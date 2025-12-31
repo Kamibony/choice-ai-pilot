@@ -7,7 +7,7 @@ import asyncio
 
 # Konfigurácia (Európa)
 PROJECT_ID = os.environ.get("GOOGLE_CLOUD_PROJECT")
-LOCATION = "europe-west1" 
+LOCATION = "us-central1"
 
 try:
     vertexai.init(project=PROJECT_ID, location=LOCATION)
