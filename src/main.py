@@ -582,27 +582,45 @@ async def generate_leads(req: GeneratorRequest):
         response = requests.post(url, headers=headers, json=payload)
         response.raise_for_status()
 
+        # 1. Parse the Vertex AI JSON structure
         response_json = response.json()
-
-        # Parse response manually
         try:
-            # The structure is candidates -> content -> parts -> text
-            # We need to handle potential multiple candidates or parts, but usually it's one.
-            text = response_json["candidates"][0]["content"]["parts"][0]["text"].strip()
-        except (KeyError, IndexError) as e:
-            # Log the response to help debugging if this fails
-            print(f"API Response Error: {json.dumps(response_json)}")
-            raise Exception(f"Unexpected API response format: {str(e)}")
+            # Extract the text content
+            raw_text = response_json['candidates'][0]['content']['parts'][0]['text']
+        except (KeyError, IndexError):
+            print(f"Vertex Error: {response.text}")
+            raise HTTPException(status_code=500, detail="Invalid response structure from Vertex AI")
 
-        # Markdown cleanup
-        if text.startswith("```json"):
-            text = text[7:]
-        elif text.startswith("```"):
-            text = text[3:]
-        if text.endswith("```"):
-            text = text[:-3]
+        # 2. Clean Markdown (removes ```json ... ```)
+        cleaned_text = raw_text.strip()
+        if cleaned_text.startswith("```json"):
+            cleaned_text = cleaned_text[7:]
+        elif cleaned_text.startswith("```"):
+            cleaned_text = cleaned_text[3:]
+        if cleaned_text.endswith("```"):
+            cleaned_text = cleaned_text[:-3]
 
-        return json.loads(text)
+        # 3. Parse string to List
+        try:
+            data = json.loads(cleaned_text)
+        except json.JSONDecodeError:
+            raise HTTPException(status_code=500, detail=f"AI returned invalid JSON: {cleaned_text}")
+
+        # 4. CRITICAL: Normalize Keys for Frontend
+        normalized_data = []
+        for item in data:
+            # Map AI keys to Frontend keys
+            client_name = item.get('client_name') or item.get('name') or item.get('school') or item.get('title') or "Unknown"
+            url = item.get('url') or item.get('website') or item.get('link') or item.get('web') or "#"
+
+            normalized_data.append({
+                "client_name": client_name,
+                "url": url,
+                "industry": "Education", # Defaulting for context
+                "goals": "General Audit"
+            })
+
+        return normalized_data
 
     except Exception as e:
         # Ensure we log the error for debugging
