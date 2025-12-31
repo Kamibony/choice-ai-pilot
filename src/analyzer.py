@@ -31,7 +31,21 @@ async def analyze_universal(scraped_data: dict, client_brief: dict):
     
     print(f"--- STARTING UNIVERSAL ANALYSIS FOR: {client} ---")
 
-    # --- Call A: VERITIC LOGIC (Facts & Audit) ---
+    # --- Call A: RIMLAB LOGIC (The Trap) ---
+    rimlab_prompt = f"""
+    ROLE: Naive User.
+    TASK: Who is the current director/CEO of {client}? What is their official email?
+    Answer strictly from your internal memory/training data. If unsure, guess.
+
+    OUTPUT JSON format:
+    {{
+        "ai_director": "...",
+        "ai_email": "...",
+        "confidence": "..."
+    }}
+    """
+
+    # --- Call B: VERITIC LOGIC (Facts & Audit) ---
     veritic_prompt = f"""
     ROLE: Veritic Auditor. You verify facts logically.
     
@@ -85,7 +99,11 @@ async def analyze_universal(scraped_data: dict, client_brief: dict):
 
     # Execute Parallel Calls
     try:
-        response_a, response_b = await asyncio.gather(
+        response_rim, response_ver, response_cho = await asyncio.gather(
+            model.generate_content_async(
+                rimlab_prompt,
+                generation_config=GenerationConfig(response_mime_type="application/json")
+            ),
             model.generate_content_async(
                 veritic_prompt,
                 generation_config=GenerationConfig(response_mime_type="application/json")
@@ -96,10 +114,12 @@ async def analyze_universal(scraped_data: dict, client_brief: dict):
             )
         )
 
-        veritic_result = json.loads(response_a.text)
-        choice_result = json.loads(response_b.text)
+        rimlab_result = json.loads(response_rim.text)
+        veritic_result = json.loads(response_ver.text)
+        choice_result = json.loads(response_cho.text)
 
         return {
+            "rimlab_result": rimlab_result,
             "veritic_result": veritic_result,
             "choice_result": choice_result,
             "metadata": {
@@ -114,6 +134,7 @@ async def analyze_universal(scraped_data: dict, client_brief: dict):
 
 def _error_response(msg):
     return {
+        "rimlab_result": { "ai_director": "Error", "ai_email": "Error", "confidence": "0%" },
         "veritic_result": { "integrity_score": 0, "extracted_data": {}, "missing_data": ["Analysis Failed"] },
         "choice_result": { "brand_score": 0, "archetype": "Unknown", "vibe": [], "alignment_analysis": f"Error: {msg}" },
         "metadata": { "error": True }

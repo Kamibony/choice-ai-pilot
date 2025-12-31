@@ -139,12 +139,33 @@ HTML_APP = """
                     <a id="resLink" href="#" target="_blank" class="text-blue-400 text-sm hover:underline"><i class="fas fa-external-link-alt"></i> Open Web</a>
                 </div>
 
-                <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
+                <div class="grid grid-cols-1 md:grid-cols-3 gap-6">
                     
-                    <!-- Veritic Column -->
+                    <!-- RimLab Column (The Trap) -->
+                    <div class="bg-slate-900/50 p-5 rounded-xl border border-red-500/30 relative overflow-hidden">
+                        <div class="absolute top-0 left-0 w-1 h-full bg-red-500"></div>
+                        <h3 class="text-red-400 font-bold uppercase text-xs mb-4 flex items-center"><i class="fas fa-exclamation-triangle mr-2"></i> AI Memory Risk</h3>
+
+                        <div class="flex justify-between items-center mb-4">
+                            <span class="text-slate-400 text-sm">Hallucination Risk</span>
+                            <span id="rimlabConf" class="text-2xl font-bold text-white">--</span>
+                        </div>
+
+                        <div class="mb-4">
+                            <p class="text-xs text-slate-500 uppercase">AI Thinks CEO Is:</p>
+                            <p id="rimlabDirector" class="text-lg font-bold text-white">--</p>
+                        </div>
+
+                        <div>
+                            <p class="text-xs text-slate-500 uppercase mb-2">AI Thinks Email Is:</p>
+                            <p id="rimlabEmail" class="text-sm text-red-300 break-all">--</p>
+                        </div>
+                    </div>
+
+                    <!-- Veritic Column (Web Reality) -->
                     <div class="bg-slate-900/50 p-5 rounded-xl border border-green-500/30 relative overflow-hidden">
                         <div class="absolute top-0 left-0 w-1 h-full bg-green-500"></div>
-                        <h3 class="text-green-400 font-bold uppercase text-xs mb-4 flex items-center"><i class="fas fa-shield-alt mr-2"></i> Veritic Audit</h3>
+                        <h3 class="text-green-400 font-bold uppercase text-xs mb-4 flex items-center"><i class="fas fa-shield-alt mr-2"></i> Web Reality</h3>
 
                         <div class="flex justify-between items-center mb-4">
                             <span class="text-slate-400 text-sm">Integrity Score</span>
@@ -162,10 +183,10 @@ HTML_APP = """
                         </div>
                     </div>
 
-                    <!-- Choice Column -->
+                    <!-- Choice Column (Brand Perception) -->
                     <div class="bg-slate-900/50 p-5 rounded-xl border border-purple-500/30 relative overflow-hidden">
                         <div class="absolute top-0 left-0 w-1 h-full bg-purple-500"></div>
-                        <h3 class="text-purple-400 font-bold uppercase text-xs mb-4 flex items-center"><i class="fas fa-heart mr-2"></i> Choice Analysis</h3>
+                        <h3 class="text-purple-400 font-bold uppercase text-xs mb-4 flex items-center"><i class="fas fa-heart mr-2"></i> Brand Perception</h3>
 
                         <div class="flex justify-between items-center mb-4">
                             <span class="text-slate-400 text-sm">Brand Score</span>
@@ -313,6 +334,12 @@ HTML_APP = """
 
             document.getElementById('resName').innerText = data.metadata.client;
             document.getElementById('resLink').href = data.metadata.url;
+
+            // RimLab
+            const r = data.rimlab_result;
+            document.getElementById('rimlabConf').innerText = r.confidence;
+            document.getElementById('rimlabDirector').innerText = r.ai_director;
+            document.getElementById('rimlabEmail').innerText = r.ai_email;
 
             // Veritic
             const v = data.veritic_result;
