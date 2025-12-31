@@ -60,7 +60,15 @@ HTML_APP = """
     <header class="flex justify-between items-center mb-10">
         <div>
             <h1 class="text-3xl font-bold gradient-text">Veritic Intelligence Hub</h1>
-            <p class="text-slate-400 text-sm">Unified Audit & Choice Analysis Engine</p>
+            <p class="text-slate-400 text-sm mb-2">Unified Audit & Choice Analysis Engine</p>
+            <div class="flex space-x-3 text-xs font-bold">
+                 <span class="text-slate-500">Powered by modules:</span>
+                 <span class="text-red-400">🔴 RimLab (Research)</span>
+                 <span class="text-slate-600">|</span>
+                 <span class="text-green-400">🟢 Veritic (Audit)</span>
+                 <span class="text-slate-600">|</span>
+                 <span class="text-purple-400">🟣 Choice (Brand)</span>
+            </div>
         </div>
         <div class="flex space-x-4">
             <span class="px-3 py-1 bg-green-900/30 text-green-400 rounded-full text-xs font-bold border border-green-500/20">VERITIC ACTIVE</span>
@@ -229,6 +237,11 @@ HTML_APP = """
         async function generateLeads() {
             const prompt = document.getElementById('aiPrompt').value;
             if(!prompt) return alert("Enter a prompt");
+
+            const btn = document.querySelector('button[onclick="generateLeads()"]');
+            const originalText = btn.innerHTML;
+            btn.disabled = true;
+            btn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Working...';
             
             try {
                 const res = await fetch('/generate-leads', {
@@ -239,6 +252,10 @@ HTML_APP = """
                 const data = await res.json();
                 loadTable(data);
             } catch(e) { alert(e); }
+            finally {
+                btn.disabled = false;
+                btn.innerHTML = originalText;
+            }
         }
 
         async function uploadLeads() {
@@ -289,7 +306,10 @@ HTML_APP = """
         }
 
         async function startCampaign() {
-            document.getElementById('btnStart').disabled = true;
+            const btn = document.getElementById('btnStart');
+            btn.disabled = true;
+            const originalText = btn.innerHTML;
+            btn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Working...';
 
             for (let i = 0; i < leads.length; i++) {
                 if(leads[i].status === 'Done') continue;
@@ -322,7 +342,8 @@ HTML_APP = """
                     renderTable();
                 }
             }
-            document.getElementById('btnStart').disabled = false;
+            btn.disabled = false;
+            btn.innerHTML = originalText;
         }
 
         function viewResult(idx) {
@@ -334,6 +355,27 @@ HTML_APP = """
 
             document.getElementById('resName').innerText = data.metadata.client;
             document.getElementById('resLink').href = data.metadata.url;
+
+            // Layman Verdict Banner
+            const banner = document.getElementById('laymanBanner');
+            if (banner) banner.remove(); // Clear previous
+
+            if (data.layman_verdict) {
+                const newBanner = document.createElement('div');
+                newBanner.id = 'laymanBanner';
+
+                // Color logic based on Veritic Score
+                const score = data.veritic_result.integrity_score || 0;
+                let bgClass = 'bg-slate-700';
+                if(score < 50) bgClass = 'bg-red-600';
+                if(score > 80) bgClass = 'bg-green-600';
+
+                newBanner.className = `p-4 rounded-xl mb-6 font-bold text-white shadow-lg ${bgClass}`;
+                newBanner.innerText = data.layman_verdict;
+
+                // Insert after header (resName/resLink container is first child)
+                card.children[0].after(newBanner);
+            }
 
             // RimLab
             const r = data.rimlab_result;
