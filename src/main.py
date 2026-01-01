@@ -240,14 +240,21 @@ HTML_APP = """
                 <div class="p-4 rounded-xl border border-red-500/30 bg-red-900/10">
                     <h3 class="text-red-400 font-bold mb-2">🔴 RimLab (Research)</h3>
                     <p class="text-slate-300 text-sm">Simuluje "paměť AI". Ukazuje, co si modely myslí, že vědí (riziko halucinace).</p>
+                    <p class="text-slate-400 text-xs mt-2 italic">Sleduje 6 bodů: Ředitel, Email, Termín, Školné, DOD, Bazén.</p>
                 </div>
                 <div class="p-4 rounded-xl border border-green-500/30 bg-green-900/10">
                     <h3 class="text-green-400 font-bold mb-2">🟢 Veritic (Audit)</h3>
                     <p class="text-slate-300 text-sm">Realita webu. Robot, který v reálném čase ověřuje fakta na stránce.</p>
+                    <p class="text-slate-400 text-xs mt-2 italic">Sleduje 6 bodů: Ředitel, Email, Termín, Školné, DOD, Bazén.</p>
                 </div>
                 <div class="p-4 rounded-xl border border-purple-500/30 bg-purple-900/10">
                     <h3 class="text-purple-400 font-bold mb-2">🟣 Choice (Brand)</h3>
                     <p class="text-slate-300 text-sm">Emoční analýza. Jak značka působí na zákazníka (archetypy, nálada).</p>
+                </div>
+
+                <div class="p-4 rounded-xl border border-blue-500/30 bg-blue-900/10">
+                    <h3 class="text-blue-400 font-bold mb-2">🧠 Syntéza & Interpretace</h3>
+                    <p class="text-slate-300 text-sm">Finální verdikt na spodku karty. Porovnává AI halucinace vs. Realitu webu a hodnotí důvěryhodnost.</p>
                 </div>
 
                 <div class="mt-4 pt-4 border-t border-slate-700">
@@ -654,11 +661,12 @@ async def support_chat(req: ChatRequest):
         Tvým úkolem je vysvětlovat uživatelům, jak systém funguje.
 
         ZNALOSTNÍ BÁZE:
-        1. Modul RimLab (Červená): Ukazuje 'AI Memory Risk' - tedy to, co si ChatGPT pamatuje z tréninkových dat (často staré omyly).
-        2. Modul Veritic (Zelená): Ukazuje 'Web Reality' - fakta, která jsme právě našli na webu klienta.
+        1. Modul RimLab (Červená): Ukazuje 'AI Memory Risk' - tedy to, co si ChatGPT pamatuje z tréninkových dat (často staré omyly). (Ředitel, Email, Termín, Školné, DOD, Bazén)
+        2. Modul Veritic (Zelená): Ukazuje 'Web Reality' - fakta, která jsme právě našli na webu klienta. (Ředitel, Email, Termín, Školné, DOD, Bazén)
         3. Modul Choice (Fialová): Ukazuje 'Brand Perception' - marketingový dojem a archetyp.
         4. Jak zadat prompt: Doporučuj specifické dotazy, např. 'Najdi 5 gymnázií v Praze', ne jen 'školy'.
         5. Interpretace: Pokud Veritic (Zelená) nenajde data, AI (Červená) bude halucinovat. To je špatně.
+        6. Nová sekce 'Syntéza' (dole) shrnuje rozdíly mezi RimLabem a Veriticem do srozumitelného verdiktu.
 
         Odpovídej stručně, nápomocně a pouze v Češtině."""
 
